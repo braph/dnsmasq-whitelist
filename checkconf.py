@@ -136,10 +136,10 @@ def check_dnsmasq_conf(conf):
         (CheckLogFacility,),
         (CheckLogQueries,),
         (CheckAddress,),
-        (CheckConfFileIncluded,  conf.allow_file, 'allow-file'),
-        (CheckConfFileIncluded,  conf.block_file, 'block-file'),
-        (CheckConfFileExistence, conf.allow_file, 'allow-file'),
-        (CheckConfFileExistence, conf.block_file, 'block-file')
+        (CheckConfFileIncluded,  conf.whitelist_file, 'whitelist-file'),
+        (CheckConfFileIncluded,  conf.blacklist_file, 'block-file'),
+        (CheckConfFileExistence, conf.whitelist_file, 'whitelist-file'),
+        (CheckConfFileExistence, conf.blacklist_file, 'block-file')
     )
 
     needed_dnsmasq_options = list(map(lambda t: t[0]._opt, check_classes))
@@ -190,14 +190,14 @@ def check_user_conf(conf):
     def die(s):
         raise ConfigException(s + ' (check your config file and command line options)')
 
-    e = "Options --allow-file and --block-file must be different"
-    if conf.allow_file == conf.block_file:
+    e = "Options --whitelist-file and --blacklist-file must be different"
+    if conf.whitelist_file == conf.blacklist_file:
         die(e)
 
-    e = 'Options --dnsmasq-conf and --allow-file must be different'
-    if conf.dnsmasq_conf == conf.allow_file:
+    e = 'Options --dnsmasq-conf and --whitelist-file must be different'
+    if conf.dnsmasq_conf == conf.whitelist_file:
         die(e)
 
-    e = 'Options --dnsmasq-conf and --block-file must be different'
-    if conf.dnsmasq_conf == conf.block_file:
+    e = 'Options --dnsmasq-conf and --blacklist-file must be different'
+    if conf.dnsmasq_conf == conf.blacklist_file:
         die(e)

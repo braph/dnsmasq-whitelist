@@ -16,10 +16,11 @@ class Config():
         'dns_server',
         'ip_manual_blocked',
         'ip_auto_blocked',
-        'block_file',
-        'allow_file',
+        'blacklist_file',
+        'whitelist_file',
         'drop_after',
         'load_log_lines',
+        'dateformat',
 
         'dnsmasq_logfile' # actually not a user option
     )
