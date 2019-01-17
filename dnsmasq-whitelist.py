@@ -455,24 +455,24 @@ try:
 
     # Parse configuration file
     iniparser = configparser.ConfigParser(dict_type=dict)
-    iniparser.read(args.pop('config'))
+    if iniparser.read(args.pop('config')):
 
-    # Check for [config] section, check for unknown sections
-    sections = iniparser.sections()
-    try:
-        sections.remove('config')
-    except:
-        raise ConfigException('[config] section missing')
+        # Check for [config] section, check for unknown sections
+        sections = iniparser.sections()
+        try:
+            sections.remove('config')
+        except:
+            raise ConfigException('[config] section missing')
 
-    if sections:
-        raise ConfigException('Unknown sections in config: ', ', '.join(sections))
-    del sections
+        if sections:
+            raise ConfigException('Unknown sections in config: ', ', '.join(sections))
+        del sections
 
-    # Import INI values into conf
-    for key, value in iniparser.items('config'):
-        try:    key_type = type(conf[key])
-        except: raise ConfigException('Unknown option in config: ' + key)
-        conf[key] = key_type(value)
+        # Import INI values into conf
+        for key, value in iniparser.items('config'):
+            try:    key_type = type(conf[key])
+            except: raise ConfigException('Unknown option in config: ' + key)
+            conf[key] = key_type(value)
 
     # Overwrite conf with command line arguments
     for key, value in args.items():
