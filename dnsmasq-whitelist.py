@@ -324,11 +324,18 @@ def cmd_block(mapping, args):
 
 
 @command('show-whitelist', 'show domains that are whitelisted', '''
-    List all domains that are currently whitelisted in the dnsmaq.conf
+    List all domains that are whitelisted.
+
+    Options:
+        -s      sort list by domain name
+
 ''', ('sw', 'showw'))
 def cmd_show_whitelist(args):
+    options, args = getopts_short('s', args)
     domains = list(read_whitelist(conf.whitelist_file))
-    index   = len(domains)
+    if options['s']:
+        domains.sort(key=attrgetter('domain'))
+    index = len(domains)
 
     print('Whitelist:')
     for domain in domains:
@@ -344,10 +351,17 @@ def cmd_show_whitelist(args):
 
 @command('show-blacklist', 'show domains that are explicitly blacklisted', '''
     List all domains that are explicitly blacklisted.
+
+    Options:
+        -s      sort list by domain name
+
 ''', ('sb', 'showb'))
 def cmd_show_blacklist(args):
+    options, args = getopts_short('s', args)
     domains = list(read_blacklist(conf.blacklist_file))
-    index   = len(domains)
+    if options['s']:
+        domains.sort(key=attrgetter('domain'))
+    index = len(domains)
 
     print('Blacklist:')
     for domain in domains:
