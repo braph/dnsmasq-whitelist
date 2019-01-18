@@ -24,9 +24,8 @@ import traceback
 import configparser
 import os, re, sys, datetime, time
 
-from enum           import Enum
 from shutil         import copy
-from itertools      import groupby, chain
+from itertools      import chain
 from threading      import Thread, Lock
 from operator       import itemgetter, attrgetter
 
@@ -35,17 +34,20 @@ from dnsmasq        import *
 from common         import *
 from checkconf      import check_dnsmasq_conf, check_user_conf
 
+PROG = 'dnsmasq-whitelist'
+VERS = '0.1'
+
 # Global configuration
 conf = Config()
 conf.dnsmasq_conf        = '/etc/dnsmasq.conf'
 conf.dnsmasq_restart_cmd = 'systemctl restart dnsmasq'
 conf.dns_server          = '8.8.8.8'
-conf.ip_manual_blocked   = '127.0.0.2'
 conf.ip_auto_blocked     = '127.0.0.1'
+conf.ip_blacklisted      = '127.0.0.2'
 conf.blacklist_file      = '/etc/dnsmasq.d/blacklist.conf'
 conf.whitelist_file      = '/etc/dnsmasq.d/whitelist.conf'
 conf.dateformat          = '%b %d %H:%M:%S'
-conf.drop_after          =  36000
+conf.drop_after          =  60 * 15
 conf.load_log_lines      =  1000
 
 # We keep our automatically blocked domains here
@@ -57,7 +59,7 @@ commands = {}
 command_aliases = {}
 
 # read_dnsmasg_log() reads from this handle.
-# We use this handle also to signal the program exit to the thread.
+# This handle is also used to signal the thread to exit.
 logfile_fh = None 
 
 def dnsmasq_restart():
@@ -70,21 +72,27 @@ def read_dnsmasg_log(fh, conf, lock, blocked_domains):
 
     # Jan 15 18:00:03 dnsmasq[15814]: config blabla.de is 127.0.0.1
     # Jan 15 18:00:03 dnsmasq[15814]: config blabla.de is ::
+    # Jan 18 00:11:41 dnsmasq[27414]: reply heise.de is 2a02:2e0:3fe:1001:302::
     # Jan 14 18:11:03 dnsmasq[5693]: reply proxy.duckduckgo.com is <CNAME>
     # Jan 14 18:11:03 dnsmasq[5693]: reply icons.duckduckgo.com is 54.75.239.212
-    # Jan 16 01:24:03 dnsmasq[2377]: config isblocked.net is NODATA-IPv6
+    # Jan 18 00:15:58 dnsmasq[27414]: config kohlchan.net is NODATA-IPv6
+    # Jan 17 23:47:25 dnsmasq[25195]: reply a.a.mytest.net is NXDOMAIN
+    # Jan 18 13:10:22 dnsmasq[29939]: config error is REFUSED
 
     def parse_line(line):
         month, day, clock, _, *parts = line.strip().split(' ')
 
         if parts[-2] == 'is':
             ip = parts[-1]
+
+            # We only want IPv4
+            if '.' not in ip:
+                return
+
             domain = parts[-3]
-            #print(ip)
 
             # Automatically blocked domain
             if ip == conf.ip_auto_blocked:
-                state = DomainState.AutoBlocked
                 hour, minute, second = clock.split(':')
                 date = datetime.datetime(
                     year=year, month=(months.index(month) + 1), day=int(day),
@@ -93,17 +101,9 @@ def read_dnsmasg_log(fh, conf, lock, blocked_domains):
 
                 with use_lock(lock):
                     blocked_domains[domain] = date
-            # Manual blocked domain
-            elif ip == conf.ip_manual_blocked:
-                with use_lock(lock):
-                    blocked_domains.pop(domain, None)
-            # Does not contain NODATA -> is valid IP -> Allowed
-            elif 'NODATA' not in ip:
-                with use_lock(lock):
-                    blocked_domains.pop(domain, None)
-            # Is NODATA, do nothing
             else:
-                return
+                with use_lock(lock):
+                    blocked_domains.pop(domain, None)
 
     if conf.load_log_lines == 0:
         fh.read(-1)
@@ -116,8 +116,8 @@ def read_dnsmasg_log(fh, conf, lock, blocked_domains):
             parse_line(line)
 
         domains = map(lambda d: d.domain, chain(
-                    read_dnsmasq_allowed(conf.whitelist_file),
-                    read_dnsmasq_blocked(conf.blacklist_file),
+                    read_whitelist(conf.whitelist_file),
+                    read_blacklist(conf.blacklist_file),
         ))
 
         with use_lock(lock):
@@ -129,35 +129,34 @@ def read_dnsmasg_log(fh, conf, lock, blocked_domains):
     while True:
         try:
             line = fh.readline()
-
-            if line:
-                parse_line(line)
-            else:
-                time.sleep(1)
         except:
-            print('Log-Reading-Thread exited')
-            return 
+            return
 
-def read_dnsmasq_allowed(conf_file):
+        if line:
+            parse_line(line)
+        else:
+            time.sleep(1)
+
+def read_whitelist(conf_file):
     return map(
         DnsMasqAllowedDomain.fromOption,
         parse_dnsmasq_config_yield(conf_file, ('server',))
     )
 
-def read_dnsmasq_blocked(conf_file):
+def read_blacklist(conf_file):
     return map(
         DnsMasqBlockedDomain.fromOption,
         parse_dnsmasq_config_yield(conf_file, ('address',))
     )
 
-def get_from_mappings(mappings, key):
-    return mappings[int(key) - 1]
+def get_from_mapping(mapping, key):
+    return mapping[int(key) - 1]
 
-def get_domains_from_args(mappings, args):
+def get_domains_from_args(mapping, args):
     domains = []
     for index in args:
         try:
-            domains.append(get_from_mappings(mappings, index))
+            domains.append(get_from_mapping(mapping, index))
         except IndexError:
             raise Exception('Invalid index: ' + index)
         except ValueError:
@@ -181,9 +180,10 @@ def command(name, short_desc, long_desc, aliases=()):
     return decorate
 
 @command('show-blocked', 'show automatically blocked domains', '''
-    Shows the domains that have been automatically blacklisted.
+    Shows the domains that have been automatically blocked.
 ''')
 def cmd_show_blocked(args):
+    print('Currently blocked:')
     with use_lock(blocked_lock):
         now = datetime.datetime.now()
 
@@ -198,42 +198,20 @@ def cmd_show_blocked(args):
         index = len(new_blocked)
         new_blocked.sort(key=itemgetter(1)) # sort by date
 
-        # Version 1
-        mappings = []
+        mapping = []
 
         for domain, date in new_blocked:
             print('%s %2d) %s' % (
                 date.strftime(conf.dateformat), index, domain))
-            mappings.append(domain)
+            mapping.append(domain)
             index -= 1
 
-        mappings.reverse()
-        return mappings
-
-        # Version 2
-        #new_blocked = groupby(new_blocked, key=itemgetter(1))
-
-        #mappings = []
-
-        #for date, domains in new_blocked:
-        #    datestr = date.strftime(conf.dateformat)
-        #    domain = next(domains)[0]
-        #    mappings.append(domain)
-        #    print('%s %2d) %s' % (datestr, index, domain))
-        #    index -= 1
-
-        #    print_fmt = '%%%ds %%2d) %%s' % len(datestr)
-
-        #    for domain, _ in domains:
-        #        print(print_fmt % ('', index, domain))
-        #        mappings.append( domain )
-        #        index -= 1
-
-        #mappings.reverse()
-        #return mappings
+        mapping.reverse()
+        return mapping
 
 @command('allow', 'whitelist domains', '''
     Allowing means to whitelist the specified domain.
+    See `show-whitelist` for the list of allowed domains.
 
     Example:
 
@@ -241,17 +219,17 @@ def cmd_show_blocked(args):
 
         > allow 3 32 wanted.com
 ''')
-def cmd_allow(mappings, args):
+def cmd_allow(mapping, args):
     options, args = getopts_short('t', args)
     temp = options['t']
-    domains = get_domains_from_args(mappings, args)
+    domains = get_domains_from_args(mapping, args)
 
     with open(conf.whitelist_file, 'a') as fh:
         for domain in domains:
             try:
-                print('allowing', domain)
                 d = DnsMasqAllowedDomain(domain, conf.dns_server, temp=temp)
                 fh.write(d.getConfStr() + '\n')
+                print('allowed `%s`' % domain)
 
                 with use_lock(blocked_lock):
                     for d in list(blocked_domains.keys()):
@@ -266,20 +244,17 @@ def cmd_allow(mappings, args):
 @command('temp', 'temporary whitelist domains', '''
     An alias for `allow -t`
 ''')
-def cmd_temp(mappings, args):
-    cmd_allow(mappings, ['-t', *args])
+def cmd_temp(mapping, args):
+    cmd_allow(mapping, ['-t', *args])
 
 
-@command('unallow', 'remove domain from whitelist', 'todo')
+@command('unallow', 'remove domain from whitelist', 'TODO', ('ua',))
 def cmd_unallow(mapping, args):
-    remove_domains = get_domains_from_args(mappings, args)
+    remove_domains = get_domains_from_args(mapping, args)
 
     with tempfile.NamedTemporaryFile('w', prefix='dnsmasqwl') as tempf:
-        domains = read_dnsmasq_allowed(conf.whitelist_file)
+        domains = read_whitelist(conf.whitelist_file)
         domains = filter(lambda d: d.domain not in remove_domains, domains)
-        #print('remove:', remove_domains)
-        #print(list(map(attrgetter('domain'), domains)))
-        #return
         domains_as_str = map(lambda d: d.getConfStr() + '\n', domains)
         tempf.file.writelines(domains_as_str)
         tempf.file.flush()
@@ -288,10 +263,27 @@ def cmd_unallow(mapping, args):
     dnsmasq_restart()
 
 
-@command('revoke', 'remove all temporary allowed domains from whitelist', 'todo')
+@command('unblock', 'remove domain from blacklist', 'TODO', ('ub',))
+def cmd_unallow(mapping, args):
+    remove_domains = get_domains_from_args(mapping, args)
+
+    with tempfile.NamedTemporaryFile('w', prefix='dnsmasqwl') as tempf:
+        domains = read_blacklist(conf.blacklist_file)
+        domains = filter(lambda d: d.domain not in remove_domains, domains)
+        domains_as_str = map(lambda d: d.getConfStr() + '\n', domains)
+        tempf.file.writelines(domains_as_str)
+        tempf.file.flush()
+        copy(tempf.name, conf.blacklist_file)
+
+    dnsmasq_restart()
+
+
+@command('revoke', 'remove all temporary allowed domains from whitelist', '''
+    Remove domains that have been whitelisted using `temp` or `allow -t`
+''')
 def cmd_revoke(args):
     with tempfile.NamedTemporaryFile('w', prefix='dnsmasqwl') as tempf:
-        domains = read_dnsmasq_allowed(conf.whitelist_file)
+        domains = read_whitelist(conf.whitelist_file)
         domains = filter(lambda d: not d.temp, domains)
         domains_as_str = map(lambda d: d.getConfStr() + '\n', domains)
         tempf.file.writelines(domains_as_str)
@@ -301,25 +293,26 @@ def cmd_revoke(args):
     dnsmasq_restart()
 
 
-@command('block', 'explicitly block a domain', '''
-    Blocking a domain means that this domain will not show up in the list again
+@command('block', 'blacklist a domain', '''
+    Blacklisting a domain means that this domain will not show up in the list again.
+    See `show-blacklist` for blacklisted domains.
 
     Example:
         block domains by index 3 and 42 and 'unwanted.com':
             block 3 42 unwanted.com
 ''')
-def cmd_block(mappings, args):
+def cmd_block(mapping, args):
     if not args:
         return print('block: missing arguments')
 
-    domains = get_domains_from_args(mappings, args)
+    domains = get_domains_from_args(mapping, args)
 
     with open(conf.blacklist_file, 'a') as fh:
         for domain in domains:
             try:
-                print('blocking', domain)
-                d = DnsMasqBlockedDomain(domain, conf.ip_manual_blocked)
+                d = DnsMasqBlockedDomain(domain, conf.ip_blacklisted)
                 fh.write(d.getConfStr() + '\n')
+                print('blocked `%s`' % domain)
                 with use_lock(blocked_lock):
                     for d in list(blocked_domains.keys()):
                         if d.endswith(domain):
@@ -330,13 +323,14 @@ def cmd_block(mappings, args):
     dnsmasq_restart()
 
 
-@command('show-allowed', 'show domains that are whitelisted', '''
+@command('show-whitelist', 'show domains that are whitelisted', '''
     List all domains that are currently whitelisted in the dnsmaq.conf
-''', ('sa',))
-def cmd_show_allowed(args):
-    domains = list(read_dnsmasq_allowed(conf.whitelist_file))
+''', ('sw', 'showw'))
+def cmd_show_whitelist(args):
+    domains = list(read_whitelist(conf.whitelist_file))
     index   = len(domains)
 
+    print('Whitelist:')
     for domain in domains:
         print('%s  %2d) %s %s' % (
             domain.getDate().strftime(conf.dateformat), index,
@@ -348,13 +342,14 @@ def cmd_show_allowed(args):
     return domains
 
 
-@command('show-user-blocked', 'show domains that are explicitly blacklisted', '''
-    List all domains that are explicitly blacklisted in the dnsmasq.conf
-''', ('sub',))
-def cmd_show_user_blocked(args):
-    domains = list(read_dnsmasq_blocked(conf.blacklist_file))
+@command('show-blacklist', 'show domains that are explicitly blacklisted', '''
+    List all domains that are explicitly blacklisted.
+''', ('sb', 'showb'))
+def cmd_show_blacklist(args):
+    domains = list(read_blacklist(conf.blacklist_file))
     index   = len(domains)
 
+    print('Blacklist:')
     for domain in domains:
         print('%s  %2d)  %s' % (
             domain.getDate().strftime(conf.dateformat), index,
@@ -365,6 +360,29 @@ def cmd_show_user_blocked(args):
     domains.reverse()
     return domains
 
+@command('show-aliases', 'show command aliases', '')
+def cmd_show_aliases(args):
+    def show_for(name):
+        try:
+            func = resolve_cmd(name)
+            aliases = []
+            for alias, aliased_func in command_aliases.items():
+                if func == aliased_func:
+                    aliases.append(alias)
+
+            print('  %-15s %s' % (func.name, ', '.join(aliases)))
+        except Exception as e:
+            print(e)
+
+    if args:
+        for name in args:
+            show_for(name)
+    else:
+        names = list(set(map(lambda f: f.name, command_aliases.values())))
+        names.sort()
+        for name in names:
+            show_for(name)
+
 
 @command('help', 'show help', '''
     Type `help <command>` for more infos.
@@ -374,15 +392,15 @@ def cmd_show_user_blocked(args):
 
     If an integer or a domain name is typed without a command, these
     arguments will be passed to `allow`:
-         `gooddomain.com` ~> `allow gooddomain.com`
+         `archlinux.org` ~> `allow archlinux.org`
 ''', ('?',))
 def cmd_help(args):
     if args:
         for name in args:
             try:
                 func = resolve_cmd(name)
-                print('   ', func.name, '-', func.short_desc)
-                print('    ', func.long_desc)
+                print(' ', func.name, '-', func.short_desc)
+                print(reindent(func.long_desc, 2))
             except Exception as e:
                 print(e)
     else:
@@ -391,8 +409,8 @@ def cmd_help(args):
 
         for name in names:
             func = commands[name]
-            print('    %-20s %s' % (name, func.short_desc))
-        print(cmd_help.long_desc)
+            print('  %-20s %s' % (name, func.short_desc))
+        print(reindent(cmd_help.long_desc, 2))
 
 
 @command('restart', 'restart dnsmasq', '')
@@ -428,11 +446,11 @@ def resolve_cmd(cmd):
 
 def no_command(cmd, args):
     try:
-        domains = get_domains_from_args(mappings, (cmd,))
+        domains = get_domains_from_args(mapping, (cmd,))
     except:
         return
 
-    domains.extend(get_domains_from_args(mappings, args))
+    domains.extend(get_domains_from_args(mapping, args))
     return domains
 
 try:
@@ -449,8 +467,8 @@ try:
         help='read N latest lines from dnsmasq log. 0=disable, -1=all')
     parser.add_argument('--ip-auto-blocked',
         help='ip used for auto blocked domains')
-    parser.add_argument('--ip-manual-blocked',
-        help='ip used for manual blocked domains')
+    parser.add_argument('--ip-blacklisted',
+        help='ip used for blacklisted domains')
     args = parser.parse_args().__dict__
 
     # Parse configuration file
@@ -498,24 +516,21 @@ try:
     logfile_fh = open(conf.dnsmasq_logfile, 'r+')
     Thread(target=read_dnsmasg_log, args=(logfile_fh, conf, blocked_lock, blocked_domains)).start()
 
-    mappings = cmd_show_blocked(None)
+    print('%s v. %s' % (PROG, VERS))
+    print('Type `help` for more information.')
 
+    mapping = None
     while True:
         try:
-            if mappings:
-                prompt = '(a)llow (b)lock (h)elp > '
-            else:
-                prompt = ' > '
-            line = input('\n' + prompt)
+            line = input('\n > ')
             print()
             cmd, *args = shlex.split(line)
         except ValueError:
             cmd, args = '', None
 
         if cmd == '':
-            mappings = cmd_show_blocked(args)
+            mapping = cmd_show_blocked(args)
         else:
-            # check
             domains = no_command(cmd, args)
             if domains:
                 func = cmd_allow
@@ -528,14 +543,14 @@ try:
                     continue
 
             try:
-                if func in (cmd_show_blocked, cmd_show_allowed, cmd_show_user_blocked):
-                    mappings = func(args)
+                if func in (cmd_show_blocked, cmd_show_whitelist, cmd_show_blacklist):
+                    mapping = func(args)
                 else:
                     if func in (cmd_allow, cmd_block, cmd_temp, cmd_unallow):
-                        if not mappings:
-                            print('Must call show-blocked, show-allowed, show-user-blocked before using this function')
+                        if not mapping:
+                            print('Must call show-blocked, show-whitelist, show-blacklist before using this function')
                         else:
-                            func(mappings, args)
+                            func(mapping, args)
                     elif func:
                         func(args)
 
@@ -544,6 +559,8 @@ try:
 
 except (KeyboardInterrupt, EOFError):
     pass
+except SystemExit as e:
+    sys.exit(e.args[0])
 except ConfigException as e:
     print(e)
     sys.exit(1)

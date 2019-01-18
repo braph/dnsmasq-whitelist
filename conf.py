@@ -14,7 +14,7 @@ class Config():
         'dnsmasq_conf',
         'dnsmasq_restart_cmd',
         'dns_server',
-        'ip_manual_blocked',
+        'ip_blacklisted',
         'ip_auto_blocked',
         'blacklist_file',
         'whitelist_file',

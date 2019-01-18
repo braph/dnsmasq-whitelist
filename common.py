@@ -21,6 +21,24 @@ def use_lock(lock):
     finally:
         lock.release()
 
+def reindent(string, pad=0):
+    lines = string.split('\n')
+
+    def rofl(lines):
+        space_re = re.compile('^ *.')
+        for line in lines:
+            try:
+                yield space_re.match(line).span()[1] - 1
+            except:
+                pass
+
+    shortest_space = min(rofl(lines))
+
+    pad = ' ' * pad
+    return '\n'.join(
+        map(lambda s: '%s%s' % (pad, s[shortest_space:]), lines)
+    )
+
 def getopts_short(opts, args):
     options = { c: None for c in opts if c != ':' }
     arguments = []
