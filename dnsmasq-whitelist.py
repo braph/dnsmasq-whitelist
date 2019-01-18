@@ -101,6 +101,7 @@ def read_dnsmasg_log(fh, conf, lock, blocked_domains):
 
                 with use_lock(lock):
                     blocked_domains[domain] = date
+            # Domain either manually blocked or whitelisted
             else:
                 with use_lock(lock):
                     blocked_domains.pop(domain, None)
@@ -523,7 +524,6 @@ try:
     options = parse_dnsmasq_config_yield(conf.dnsmasq_conf, ('log-facility',))
     conf.dnsmasq_logfile = next(options).value
 
-    # Cleanup
     del parser, args, iniparser, options
 
     # Open our dnsmasq logfile, start parsing thread
@@ -569,15 +569,15 @@ try:
                         func(args)
 
             except Exception as e:
-                print('Ouch:', e, '\n\n', traceback.format_exc())
+                print('Ouch:', e, '\n', traceback.format_exc())
 
 except (KeyboardInterrupt, EOFError):
     pass
-except SystemExit as e:
-    sys.exit(e.args[0])
 except ConfigException as e:
     print(e)
     sys.exit(1)
+except SystemExit as e:
+    sys.exit(e.args[0])
 except:
     print('Ouch.', '\n', traceback.format_exc())
     sys.exit(1)

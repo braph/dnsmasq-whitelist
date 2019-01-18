@@ -77,7 +77,7 @@ class CheckAddress(CheckConf):
     def check(self):
         self.hash_addresses = list(filter(lambda o: '/#/' in o.value,
                                     self.options.get('address', ())))
-        return self.hash_addresses
+        return not not self.hash_addresses
 
     def fix(self):
         self.conf_insert('address=/#/' + self.conf.ip_auto_blocked)
@@ -200,4 +200,8 @@ def check_user_conf(conf):
 
     e = 'Options --dnsmasq-conf and --blacklist-file must be different'
     if conf.dnsmasq_conf == conf.blacklist_file:
+        die(e)
+
+    e = 'Options --ip-blacklisted and --ip-auto-blocked must be different'
+    if conf.ip_blacklisted == conf.ip_auto_blocked:
         die(e)
