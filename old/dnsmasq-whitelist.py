@@ -29,10 +29,10 @@ from itertools      import chain
 from threading      import Thread, Lock
 from operator       import itemgetter, attrgetter
 
-from dnsmasq_whitelist.conf           import *
-from dnsmasq_whitelist.dnsmasq        import *
-from dnsmasq_whitelist.common         import *
-from dnsmasq_whitelist.checkconf      import check_dnsmasq_conf, check_user_conf
+from conf           import *
+from dnsmasq        import *
+from common         import *
+from checkconf      import check_dnsmasq_conf, check_user_conf
 
 PROG = 'dnsmasq-whitelist'
 VERS = '0.1'
@@ -265,7 +265,7 @@ def cmd_unallow(mapping, args):
 
 
 @command('unblock', 'remove domain from blacklist', 'TODO', ('ub',))
-def cmd_unblock(mapping, args):
+def cmd_unallow(mapping, args):
     remove_domains = get_domains_from_args(mapping, args)
 
     with tempfile.NamedTemporaryFile('w', prefix='dnsmasqwl') as tempf:
@@ -322,6 +322,42 @@ def cmd_block(mapping, args):
                 print('Error:', e)
 
     dnsmasq_restart()
+
+
+@command('edit', 'edit the whitelist/blacklist with an editor', '''
+''')
+def cmd_edit(args):
+    if not args:
+        return print('edit: Missing arguments')
+
+    def edit_blacklist():
+        pass
+
+    def edit_whitelist():
+        with tempfile.NamedTemporaryFile('w', prefix='dnsmasqwl') as tempf:
+            domains = read_whitelist(conf.whitelist_file)
+            domains_as_str = map(lambda d: d.domain + '\n', domains)
+            tempf.file.writelines(domains_as_str)
+            tempf.file.flush()
+
+            os.system('vim ' + tempf.name)
+
+            return
+            #domains_as_str = map(lambda d: d.getConfStr() + '\n', domains)
+            #copy(tempf.name, conf.whitelist_file)
+
+
+    for arg in args:
+        if 'blacklist'.startswith(arg):
+            edit_blacklist()
+        elif 'whitelist'.startswith(arg):
+            edit_whitelist()
+        else:
+            print('invalid argument: ', arg)
+
+    dnsmasq_restart()
+
+
 
 
 @command('show-whitelist', 'show domains that are whitelisted', '''
@@ -397,82 +433,6 @@ def cmd_show_aliases(args):
         names.sort()
         for name in names:
             show_for(name)
-
-
-@command('edit', 'edit the whitelist/blacklist with an editor', '''
-    Edit whitelist or blacklist with $EDITOR.
-
-    Example:
-        edit whitelist blacklist # edit both files
-        edit w                   # edit whitelist 
-''')
-def cmd_edit(args):
-    if not args:
-        return print('edit: Missing arguments')
-
-    EDITOR = os.environ.get('EDITOR', 'vim')
-    def edit(file):
-        os.system('%s %s' % (EDITOR, file))
-
-    def backup(file):
-        copy(file, file + '.bak')
-        print('Created backup file: ', file + '.bak')
-
-    def edit_blacklist():
-        backup(conf.blacklist_file)
-        domains = list(read_blacklist(conf.blacklist_file))
-
-        with tempfile.NamedTemporaryFile('w', prefix='dnsmasqwl') as tempf:
-            tempf.file.writelines(map(lambda d: d.domain + '\n', domains))
-            tempf.file.flush()
-
-            edit(tempf.name)
-
-            with open(tempf.name, 'r') as f:
-                kept_domains = list(map(str.strip, f.readlines()))
-
-            domains = filter(lambda d: d.domain in kept_domains, domains)
-
-            with open(tempf.name, 'w') as f:
-                f.writelines(map(lambda d: d.getConfStr() + '\n', domains))
-
-            if False:
-                edit(tempf.name)
-
-            copy(tempf.name, conf.blacklist_file)
-
-    def edit_whitelist():
-        backup(conf.whitelist_file)
-        domains = list(read_whitelist(conf.whitelist_file))
-
-        with tempfile.NamedTemporaryFile('w', prefix='dnsmasqwl') as tempf:
-            tempf.file.writelines(map(lambda d: d.domain + '\n', domains))
-            tempf.file.flush()
-
-            edit(tempf.name)
-
-            with open(tempf.name, 'r') as f:
-                kept_domains = list(map(str.strip, f.readlines()))
-
-            domains = filter(lambda d: d.domain in kept_domains, domains)
-
-            with open(tempf.name, 'w') as f:
-                f.writelines(map(lambda d: d.getConfStr() + '\n', domains))
-
-            if False:
-                edit(tempf.name)
-
-            copy(tempf.name, conf.whitelist_file)
-
-    for arg in args:
-        if 'blacklist'.startswith(arg):
-            edit_blacklist()
-        elif 'whitelist'.startswith(arg):
-            edit_whitelist()
-        else:
-            print('invalid argument: ', arg)
-
-    dnsmasq_restart()
 
 
 @command('help', 'show help', '''
@@ -636,7 +596,7 @@ try:
                 if func in (cmd_show_blocked, cmd_show_whitelist, cmd_show_blacklist):
                     mapping = func(args)
                 else:
-                    if func in (cmd_allow, cmd_block, cmd_temp, cmd_unallow, cmd_unblock):
+                    if func in (cmd_allow, cmd_block, cmd_temp, cmd_unallow):
                         if not mapping:
                             print('Must call show-blocked, show-whitelist, show-blacklist before using this function')
                         else:
