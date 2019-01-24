@@ -631,7 +631,7 @@ try:
         else:
             domains = no_command(cmd, args)
             if domains:
-                func = cmd_allow
+                func = resolve_cmd(conf.default_command)
                 args = domains
             else:
                 try:
