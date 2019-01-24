@@ -3,6 +3,22 @@
 import re
 from contextlib import contextmanager
 
+from string import Formatter
+from operator import itemgetter
+
+__FORMATTER = Formatter()
+def getPlaceholders(s):
+    return list(set(filter(None, map(itemgetter(1), __FORMATTER.parse(s)))))
+
+def getFormatDictByObj(s, obj):
+    d = {}
+    for p in getPlaceholders(s):
+        d[p] = obj.__getattribute__(p)
+    return d
+
+def formatByObj(s, obj):
+    return s.format(**getFormatDictByObj(s, obj))
+
 __DOMAIN_RE = re.compile('^[\*\w\.-]+\.[\*\w\.-]+$')
 def valid_domain(domain):
     return __DOMAIN_RE.match(domain)

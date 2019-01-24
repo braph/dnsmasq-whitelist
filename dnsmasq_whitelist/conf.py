@@ -21,6 +21,7 @@ class Config():
         'drop_after',
         'load_log_lines',
         'dateformat',
+        'default_command',
 
         'dnsmasq_logfile' # actually not a user option
     )

@@ -49,6 +49,7 @@ conf.whitelist_file      = '/etc/dnsmasq.d/whitelist.conf'
 conf.dateformat          = '%b %d %H:%M:%S'
 conf.drop_after          =  60 * 15
 conf.load_log_lines      =  1000
+conf.default_command     = 'temp'
 
 # We keep our automatically blocked domains here
 blocked_domains = dict()
@@ -214,6 +215,10 @@ def cmd_show_blocked(args):
     Allowing means to whitelist the specified domain.
     See `show-whitelist` for the list of allowed domains.
 
+    Options:
+        -t      Temporary allow domain.
+                Use `revoke` to unallow temporary allowed domains.
+
     Example:
 
         Allow domains by index 3 and 42 and 'wanted.com':
@@ -230,7 +235,7 @@ def cmd_allow(mapping, args):
             try:
                 d = DnsMasqAllowedDomain(domain, conf.dns_server, temp=temp)
                 fh.write(d.getConfStr() + '\n')
-                print('allowed `%s`' % domain)
+                print('%sallowed `%s`' % ('temporary ' if temp else '', domain))
 
                 with use_lock(blocked_lock):
                     for d in list(blocked_domains.keys()):
@@ -402,7 +407,7 @@ def cmd_show_aliases(args):
 @command('edit', 'edit the whitelist/blacklist with an editor', '''
     Edit whitelist or blacklist with $EDITOR.
 
-    Example:
+    Examples:
         edit whitelist blacklist # edit both files
         edit w                   # edit whitelist 
 ''')
@@ -475,6 +480,7 @@ def cmd_edit(args):
     dnsmasq_restart()
 
 
+
 @command('help', 'show help', '''
     Type `help <command>` for more infos.
 
@@ -482,8 +488,8 @@ def cmd_edit(args):
          `b facebook.com` ~> `block facebook.com`
 
     If an integer or a domain name is typed without a command, these
-    arguments will be passed to `allow`:
-         `archlinux.org` ~> `allow archlinux.org`
+    arguments will be passed to `{default_command}`:
+         `archlinux.org` ~> `{default_command} archlinux.org`
 ''', ('?',))
 def cmd_help(args):
     if args:
@@ -491,7 +497,8 @@ def cmd_help(args):
             try:
                 func = resolve_cmd(name)
                 print(' ', func.name, '-', func.short_desc)
-                print(reindent(func.long_desc, 2))
+                txt = formatByObj(func.long_desc, conf)
+                print(reindent(txt, 2))
             except Exception as e:
                 print(e)
     else:
@@ -501,7 +508,8 @@ def cmd_help(args):
         for name in names:
             func = commands[name]
             print('  %-20s %s' % (name, func.short_desc))
-        print(reindent(cmd_help.long_desc, 2))
+        txt = formatByObj(cmd_help.long_desc, conf)
+        print(reindent(txt, 2))
 
 
 @command('restart', 'restart dnsmasq', '')
