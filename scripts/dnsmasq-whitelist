@@ -80,8 +80,9 @@ def read_dnsmasg_log(fh, conf, lock, blocked_domains):
     # Jan 17 23:47:25 dnsmasq[25195]: reply a.a.mytest.net is NXDOMAIN
     # Jan 18 13:10:22 dnsmasq[29939]: config error is REFUSED
 
+    spacesRE = re.compile(' +')
     def parse_line(line):
-        month, day, clock, _, *parts = line.strip().split(' ')
+        month, day, clock, _, *parts = spacesRE.split(line.strip())
 
         if parts[-2] == 'is':
             ip = parts[-1]
