@@ -27,11 +27,18 @@ class Config():
     )
 
     def __getitem__(self, key):
-        return self.__getattribute__(key.replace('-', '_'))
+        try:
+            return self.__getattribute__(key)
+        except:
+            return self.__getattribute__(key.replace('-', '_'))
 
     def __setitem__(self, key, value):
-        return self.__setattr__(key.replace('-', '_'), value)
+        if '-' in key:
+            key = key.replace('-', '_')
+        return self.__setattr__(key, value)
 
     def __contains__(self, key):
-        return key.replace('-', '_') in self.__slots__
+        if '-' in key:
+            key = key.replace('-', '_')
+        return key in self.__slots__
         

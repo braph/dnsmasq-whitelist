@@ -153,7 +153,7 @@ def check_dnsmasq_conf(conf):
 
     if check_objs:
         need_restart = True
-        print("There have been found some configuration.\n")
+        print("There have been found some configuration errors.\n")
         for check_obj in check_objs:
             print('-', check_obj.error())
             print(' (%s)' % (check_obj.desc()))
@@ -162,7 +162,7 @@ def check_dnsmasq_conf(conf):
             #if _desc:
             #    print('   ', _desc)
 
-        p = ' [a]uto fix all, [m]anually fix, [q]uit'
+        p = ' [a]uto fix all, [m]anually fix, [q]uit, [c]ontinue anyway'
         r = read_prompt_with_choices(p)
         if r == 'm':
             for check_obj in check_objs:
@@ -179,6 +179,9 @@ def check_dnsmasq_conf(conf):
                 check_obj.fix()
         elif r == 'q':
             raise KeyboardInterrupt()
+        elif r == 'c':
+            return False
+
 
     if not all_fixed:
         raise ConfigException("Not all configuration problems have been fixed.\n" +
