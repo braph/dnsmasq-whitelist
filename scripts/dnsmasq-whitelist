@@ -24,15 +24,15 @@ import traceback
 import configparser
 import os, re, sys, datetime, time
 
-from shutil         import copy
-from itertools      import chain
-from threading      import Thread, Lock
-from operator       import itemgetter, attrgetter
+from shutil     import copy
+from itertools  import chain
+from threading  import Thread, Lock
+from operator   import itemgetter, attrgetter
 
-from dnsmasq_whitelist.conf           import *
-from dnsmasq_whitelist.dnsmasq        import *
-from dnsmasq_whitelist.common         import *
-from dnsmasq_whitelist.checkconf      import check_dnsmasq_conf, check_user_conf
+from dnsmasq_whitelist.conf       import *
+from dnsmasq_whitelist.dnsmasq    import *
+from dnsmasq_whitelist.common     import *
+from dnsmasq_whitelist.checkconf  import check_dnsmasq_conf, check_user_conf
 
 PROG = 'dnsmasq-whitelist'
 VERS = '0.1'
